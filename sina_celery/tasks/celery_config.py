@@ -42,12 +42,12 @@ app.conf.update(
         # },
         'weiboinfo_task': {
             'task': 'tasks.get_weibo_info.get_weibo_info',
-            'schedule': timedelta(seconds=100),
+            'schedule': timedelta(seconds=10000),
             'options': {'queue': 'weiboinfo', 'routing_key': 'for_weiboinfo'}
         },
         'info_other_task': {
             'task': 'tasks.getuserinfo.get_user',
-            'schedule': timedelta(seconds=100),
+            'schedule': timedelta(seconds=10000),
             'options': {'queue': 'otherinfo', 'routing_key': 'for_otherinfo'}
         },
     },

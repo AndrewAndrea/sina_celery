@@ -15,7 +15,7 @@ cookie = {
 # 获取用户昵称
 @app.task(ignore_result=True)
 def get_user():
-    user_id = 5310248121
+    user_id = 1805357121
     fiter = 1
     weibo_user = dict()
     try:

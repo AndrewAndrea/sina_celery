@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from .celery_config import app
 from sina_celery.db.weibo_content_user import WeiBoContentUser
+from sina_celery.db.weibo_comment import WeiBoComment
 
 cookie = {
     "Cookie": "SCF=Ah_hPPeAWzsVcWNL_hXTKlsY02uyImln6rRA5SjNV56b_rHKl8Qlq2qoeioZKpC8l2B5u8aYfZlD5BXAbmPCGxM.; _T_WM=d918d57b34bd39c1a86baaa7bf0c0b13; SUB=_2A25xn1d5DeRhGeNI61EQ8y3PzD2IHXVTYHkxrDV6PUJbkdAKLXKgkW1NSKGyUHU_XrMyQ6xqPs0W-tCCkfZgJbGt; SUHB=0gHiHrZqqLocQC; MLOGIN=1; XSRF-TOKEN=5177db; WEIBOCN_FROM=1110006030; M_WEIBOCN_PARAMS=luicode%3D20000174%26uicode%3D20000174"
@@ -27,7 +28,7 @@ def get_weibo_info():
     comment_num_list = []
     retweet_num_list = []
     weibocontent = dict()
-    user_id = 5310248121
+    user_id = 1805357121
     filter = 1
     try:
         url = "https://weibo.cn/u/%d?filter=%d&page=1" % (
@@ -42,7 +43,8 @@ def get_weibo_info():
         pattern = r"\d+\.?\d*"
         for page in tqdm(range(1, page_num + 1), desc=u"进度"):
             url2 = "https://weibo.cn/u/%d?filter=%d&page=%d" % (
-                5019711860, 1, page)
+                user_id, filter, page)
+            # requests.get(url2, cookies=cookie)
             html2 = requests.get(url2, cookies=cookie).content
             selector2 = etree.HTML(html2)
             info = selector2.xpath("//div[@class='c']")
@@ -51,38 +53,31 @@ def get_weibo_info():
                 for i in range(0, len(info) - 2):
                     # 微博内容
                     content, weibo_id = get_weibo_content(info[i])
-
                     # 微博位置
                     palce = get_weibo_place(info[i])
-
                     # 微博发布时间
                     publish_time = get_publish_time(info[i])
-
                     # 微博发布工具
                     publish_tool = get_publish_tool(info[i])
-
                     str_footer = info[i].xpath("div")[-1]
                     str_footer = str_footer.xpath("string(.)")
                     str_footer = str_footer[str_footer.rfind(u'赞'):]
                     guid = re.findall(pattern, str_footer, re.M)
-
                     # 点赞数
                     up_num = int(guid[0])
                     up_num_list.append(up_num)
-                    print(u"点赞数: " + str(up_num))
-
                     # 转发数
                     retweet_num = int(guid[1])
                     retweet_num_list.append(retweet_num)
-                    print(u"转发数: " + str(retweet_num))
-
                     # 评论数
                     comment_num = int(guid[2])
                     comment_num_list.append(comment_num)
-                    print(u"评论数: " + str(comment_num))
-                    print(
-                        "===========================================================================")
-                    print(type(publish_time), '类型，，，，，，，，，，，，，，')
+                    if comment_num != 0:
+                        app.send_task('tasks.get_weibo_info.get_comment',
+                                      args=(user_id, weibo_id, ),
+                                      queue='weiboinfo',
+                                      routing_key='for_weiboinfo')
+                        # get_comment(user_id, weibo_id)
                     weibo_num2 += 1
                     weibocontent['userId'] = user_id
                     weibocontent['contentId'] = weibo_id + str(user_id)
@@ -93,8 +88,8 @@ def get_weibo_info():
                     weibocontent['commentNumber'] = comment_num
                     weibocontent['publistTool'] = publish_tool
                     weibocontent['weiBoPlace'] = palce
-                    WeiBoContentUser.add(weibocontent)
-
+                    item = WeiBoContentUser.add(weibocontent)
+                    print(item)
         if not filter:
             print(u"共" + str(weibo_num2) + u"条微博")
         else:
@@ -113,7 +108,6 @@ def get_weibo_content(info):
         str_t = info.xpath("div/span[@class='ctt']")
         weibo_content = str_t[0].xpath("string(.)").replace(u"\u200b", "")
         weibo_id = info.xpath("@id")[0][2:]
-        print(weibo_id, '----------------------weboid')
         a_link = info.xpath("div/span[@class='ctt']/a")
         is_retweet = info.xpath("div/span[@class='cmt']")
         # if a_link:
@@ -245,3 +239,34 @@ def get_retweet(is_retweet, info, wb_content):
     except Exception as e:
         print("Error: ", e)
         traceback.print_exc()
+
+
+@app.task(ignore_result=True)
+def get_comment(user_id, weibo_id):
+    """
+    获取评论内容
+    :param user_id:
+    :param weibo_id:
+    :return:
+    """
+    comment_field = dict()
+    res = requests.get('https://weibo.cn/comment/%s?uid=%d&rl=0#cmtfrm' % (weibo_id, user_id), cookies=cookie).content
+    selector = etree.HTML(res)
+    urls = selector.xpath("//div[@class='c']/a[1]/@href")
+    for url in urls:
+        if 'filter' in url:
+            urls.remove(url)
+    ids = selector.xpath("//div[@class='c']/@id")
+    for m_id in ids:
+        if 'M_' in m_id:
+            ids.remove(m_id)
+    contents = selector.xpath('//div[@class="c"]/span[@class="ctt"]')
+    for comm in range(len(ids)):
+        comment_content = contents[comm].xpath('string(.)')
+        comment_field['userId'] = user_id
+        comment_field['weibo_id'] = weibo_id
+        comment_field['comment_id'] = ids[comm]
+        comment_field['comment_content'] = comment_content
+        comment_field['comment_userid'] = urls[comm].split('/')[-1]
+        WeiBoComment.add(comment_field)
+

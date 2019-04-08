@@ -12,7 +12,7 @@ cookie = {
 @app.task(ignore_result=True)
 def get_user():
     try:
-        url = "https://weibo.cn/%d/info" % 5019711860
+        url = "https://weibo.cn/%d/info" % 6193466450
         html = requests.get(url, cookies=cookie).content
         selector = etree.HTML(html)
         username = selector.xpath("//title/text()")[0]
