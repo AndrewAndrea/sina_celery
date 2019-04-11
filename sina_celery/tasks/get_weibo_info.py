@@ -1,4 +1,5 @@
-import sys
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
 import re
 
 import requests
@@ -8,94 +9,52 @@ from datetime import datetime
 from datetime import timedelta
 
 from lxml import etree
-from tqdm import tqdm
+from bs4 import BeautifulSoup
 
 from .celery_config import app
 from sina_celery.db.weibo_content_user import WeiBoContentUser
 from sina_celery.db.weibo_comment import WeiBoComment
 
-cookie = {
-    "Cookie": "你的cookie"
-}
+from sina_celery.page_get.get_longcontent import get_long_content
+from sina_celery.parse_content.content_parse import parse_content
 
 
 # 获取用户微博信息
 @app.task(ignore_result=True)
 def get_weibo_info():
-    weibo_num2 = 0
-    weibo_num = 0
-    up_num_list = []
-    comment_num_list = []
-    retweet_num_list = []
-    weibocontent = dict()
-    user_id = 1805357121
-    filter = 1
+    user_id = 1549364094
     try:
-        url = "https://weibo.cn/u/%d?filter=%d&page=1" % (
-            user_id, filter)
-        html = requests.get(url, cookies=cookie).content
-        selector = etree.HTML(html)
-        if selector.xpath("//input[@name='mp']") == []:
-            page_num = 1
-        else:
-            page_num = (int)(selector.xpath(
-                "//input[@name='mp']")[0].attrib["value"])
         pattern = r"\d+\.?\d*"
-        for page in tqdm(range(1, page_num + 1), desc=u"进度"):
-            url2 = "https://weibo.cn/u/%d?filter=%d&page=%d" % (
-                user_id, filter, page)
-            # requests.get(url2, cookies=cookie)
-            html2 = requests.get(url2, cookies=cookie).content
-            selector2 = etree.HTML(html2)
-            info = selector2.xpath("//div[@class='c']")
-            is_empty = info[0].xpath("div/span[@class='ctt']")
-            if is_empty:
-                for i in range(0, len(info) - 2):
-                    # 微博内容
-                    content, weibo_id = get_weibo_content(info[i])
-                    # 微博位置
-                    palce = get_weibo_place(info[i])
-                    # 微博发布时间
-                    publish_time = get_publish_time(info[i])
-                    # 微博发布工具
-                    publish_tool = get_publish_tool(info[i])
-                    str_footer = info[i].xpath("div")[-1]
-                    str_footer = str_footer.xpath("string(.)")
-                    str_footer = str_footer[str_footer.rfind(u'赞'):]
-                    guid = re.findall(pattern, str_footer, re.M)
-                    # 点赞数
-                    up_num = int(guid[0])
-                    up_num_list.append(up_num)
-                    # 转发数
-                    retweet_num = int(guid[1])
-                    retweet_num_list.append(retweet_num)
-                    # 评论数
-                    comment_num = int(guid[2])
-                    comment_num_list.append(comment_num)
-                    if comment_num != 0:
-                        app.send_task('tasks.get_weibo_info.get_comment',
-                                      args=(user_id, weibo_id, ),
-                                      queue='weiboinfo',
-                                      routing_key='for_weiboinfo')
-                        # get_comment(user_id, weibo_id)
-                    weibo_num2 += 1
-                    weibocontent['userId'] = user_id
-                    weibocontent['contentId'] = weibo_id + str(user_id)
-                    weibocontent['content'] = content
-                    weibocontent['publishTime'] = publish_time
-                    weibocontent['retweetNumber'] = retweet_num
-                    weibocontent['likeNumber'] = up_num
-                    weibocontent['commentNumber'] = comment_num
-                    weibocontent['publistTool'] = publish_tool
-                    weibocontent['weiBoPlace'] = palce
-                    item = WeiBoContentUser.add(weibocontent)
-                    print(item)
-        if not filter:
-            print(u"共" + str(weibo_num2) + u"条微博")
-        else:
-            print(u"共" + str(weibo_num) + u"条微博，其中" +
-                  str(weibo_num2) + u"条为原创微博"
-                  )
+        infos = parse_content()
+        for info in infos:
+            # info = next(parse_content())
+            # 微博内容
+            content, weibo_id = get_weibo_content(info)
+            # 微博位置
+            palce = get_weibo_place(info)
+            # 微博发布时间
+            publish_time = get_publish_time(info)
+            # 微博发布工具
+            publish_tool = get_publish_tool(info)
+            str_footer = info.xpath("div")[-1]
+            str_footer = str_footer.xpath("string(.)")
+            str_footer = str_footer[str_footer.rfind(u'赞'):]
+            guid = re.findall(pattern, str_footer, re.M)
+            # 点赞数
+            up_num = int(guid[0])
+            # 转发数
+            retweet_num = int(guid[1])
+            # 评论数
+            comment_num = int(guid[2])
+            print(comment_num, '评论数量-----------------------------')
+            # if comment_num != 0:
+            #     app.send_task('tasks.get_weibo_info.get_comment',
+            #                   args=(user_id, weibo_id,),
+            #                   queue='weiboinfo',
+            #                   routing_key='for_weiboinfo')
+            WeiBoContentUser.add(user_id, weibo_id + str(user_id), content, publish_time, retweet_num, up_num,
+                                 comment_num, publish_tool, palce)
+
     except Exception as e:
         print("Error: ", e)
         traceback.print_exc()
@@ -130,7 +89,6 @@ def get_weibo_content(info):
 
 # 获取微博发布位置
 def get_weibo_place(info):
-    weibo_place_list = []
     try:
         div_first = info.xpath("div")[0]
         a_list = div_first.xpath("a")
@@ -149,7 +107,6 @@ def get_weibo_place(info):
                     weibo_place = weibo_place.xpath("string(.)")
                     break
 
-        weibo_place_list.append(weibo_place)
         print(u"微博位置: " + weibo_place)
         return weibo_place
     except Exception as e:
@@ -159,7 +116,6 @@ def get_weibo_place(info):
 
 # 获取微博发布时间
 def get_publish_time(info):
-    publish_time_list = []
     try:
         str_time = info.xpath("div/span[@class='ct']")
         str_time = str_time[0].xpath("string(.)")
@@ -184,7 +140,6 @@ def get_publish_time(info):
             publish_time = (year + "-" + month + "-" + day + " " + time)
         else:
             publish_time = publish_time[:16]
-        publish_time_list.append(publish_time)
         print(u"微博发布时间: " + publish_time)
         return publish_time
     except Exception as e:
@@ -194,7 +149,6 @@ def get_publish_time(info):
 
 # 获取微博发布工具
 def get_publish_tool(info):
-    publish_tool_list = []
     try:
         str_time = info.xpath("div/span[@class='ct']")
         str_time = str_time[0].xpath("string(.)")
@@ -202,17 +156,16 @@ def get_publish_tool(info):
             publish_tool = str_time.split(u'来自')[1]
         else:
             publish_tool = u"无"
-        publish_tool_list.append(publish_tool)
-        print(u"微博发布工具: " + publish_tool)
         return publish_tool
     except Exception as e:
         print("Error: ", e)
         traceback.print_exc()
 
+
 # 获取"长微博"全部文字内容
 def get_long_weibo(weibo_link):
     try:
-        html = requests.get(weibo_link, cookies=cookie).content
+        html = get_long_weibo(weibo_link)
         selector = etree.HTML(html)
         info = selector.xpath("//div[@class='c']")[1]
         wb_content = info.xpath("div/span[@class='ctt']")[0].xpath("string(.)").replace(u"\u200b", "")
@@ -240,7 +193,6 @@ def get_retweet(is_retweet, info, wb_content):
         print("Error: ", e)
         traceback.print_exc()
 
-
 @app.task(ignore_result=True)
 def get_comment(user_id, weibo_id):
     """
@@ -250,23 +202,57 @@ def get_comment(user_id, weibo_id):
     :return:
     """
     comment_field = dict()
-    res = requests.get('https://weibo.cn/comment/%s?uid=%d&rl=0#cmtfrm' % (weibo_id, user_id), cookies=cookie).content
-    selector = etree.HTML(res)
-    urls = selector.xpath("//div[@class='c']/a[1]/@href")
-    for url in urls:
-        if 'filter' in url:
-            urls.remove(url)
-    ids = selector.xpath("//div[@class='c']/@id")
-    for m_id in ids:
-        if 'M_' in m_id:
-            ids.remove(m_id)
-    contents = selector.xpath('//div[@class="c"]/span[@class="ctt"]')
-    for comm in range(len(ids)):
-        comment_content = contents[comm].xpath('string(.)')
-        comment_field['userId'] = user_id
-        comment_field['weibo_id'] = weibo_id
-        comment_field['comment_id'] = ids[comm]
-        comment_field['comment_content'] = comment_content
-        comment_field['comment_userid'] = urls[comm].split('/')[-1]
-        WeiBoComment.add(comment_field)
-
+    print(weibo_id, 'weibo--------')
+    try:
+        html = get_comment(weibo_id, user_id)
+        soup = BeautifulSoup(html, "html.parser", from_encoding="utf8")
+        comments = soup.find_all("div", {"class": "c"})
+        for c in comments:
+            try:
+                comment_field['userId'] = user_id
+                comment_field['weibo_id'] = weibo_id
+                comment_field['userName'] = c.find("a").text
+                comment_field['comment_userid'] = c.find("a").get("href").split('/')[-1]
+                comment_field['comment_content'] = c.find("span", {"class": "ctt"}).text
+                comment_field['comment_id'] = str(c.get("id"))
+                comment_field['commentLike'] = c.find("span", {"class": "cc"}).find("a").text
+                comment_field['commentTime'] = c.find("span", {"class": "ct"}).text.strip()
+            except:
+                pass
+            next_url = None
+            try:
+                next_url = soup.find("div", {"id": "pagelist"}).find("form").find("a", text=r'下页').get("href")
+            except:
+                pass
+            if next_url:
+                yield Request(url=self.host + next_url, callback=self.parseC, meta={"weiboID": response.meta["weiboID"]})
+            else:
+                pass
+        selector = etree.HTML(res)
+        urls_1 = selector.xpath("//div[@class='c']/a[1]/@href")
+        print(urls_1, '------------------')
+    except Exception as e:
+        print('出现异常' + str(e))
+        print('微博id' + weibo_id)
+        res_text = requests.get('https://weibo.cn/comment/%s?uid=%d&rl=0#cmtfrm' % (weibo_id, user_id), cookies=cookie,
+                                headers=headers)
+        # pattern = '<a.*?href="(.+)".*?>(.*?)</a>'
+        with open('commecnt.html', 'w', encoding='utf8') as f:
+            f.write(res_text.text)
+# for url in urls:
+#     if 'filter' in url:
+#         urls.remove(url)
+# print(urls, '----------------------')
+# ids = selector.xpath("//div[@class='c']/@id")
+# for m_id in ids:
+#     if 'M_' in m_id:
+#         ids.remove(m_id)
+# contents = selector.xpath('//div[@class="c"]/span[@class="ctt"]')
+# for comm in range(len(ids)):
+#     comment_content = contents[comm].xpath('string(.)')
+#     comment_field['userId'] = user_id
+#     comment_field['weibo_id'] = weibo_id
+#     comment_field['comment_id'] = ids[comm]
+#     comment_field['comment_content'] = comment_content
+#     comment_field['comment_userid'] = urls[comm].split('/')[-1]
+#     WeiBoComment.add(comment_field)

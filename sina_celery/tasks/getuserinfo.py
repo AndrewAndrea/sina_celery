@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
 import re
 import requests
 import traceback
@@ -15,7 +17,7 @@ cookie = {
 # 获取用户昵称
 @app.task(ignore_result=True)
 def get_user():
-    user_id = 1805357121
+    user_id = 1549364094
     fiter = 1
     weibo_user = dict()
     try:

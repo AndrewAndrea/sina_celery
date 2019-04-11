@@ -18,6 +18,7 @@ class WeiBoComment(Document):
     @classmethod
     def add(cls, comment_fild):
         item = WeiBoComment.objects(comment_id=comment_fild['comment_id']).first()
+        print(item, 'item内容ID')
         if not item:
             item = cls(**comment_fild)
             item.save()
