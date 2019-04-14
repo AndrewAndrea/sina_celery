@@ -7,17 +7,15 @@ import traceback
 from lxml import etree
 from .celery_config import app
 from sina_celery.db.weibo_user import WeiBoUser
+from sina_celery.config import settings
 
-
-cookie = {
-    "Cookie": "你的cookie"
-}
+cookie = settings.cookie
 
 
 # 获取用户昵称
 @app.task(ignore_result=True)
 def get_user():
-    user_id = 1549364094
+    user_id = 1594199381
     fiter = 1
     weibo_user = dict()
     try:

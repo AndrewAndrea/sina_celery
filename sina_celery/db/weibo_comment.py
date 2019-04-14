@@ -9,7 +9,9 @@ class WeiBoComment(Document):
     comment_id = StringField(required=True, unique=True)
     comment_content = StringField(default='')
     comment_userid = StringField(required=True)
-
+    comment_username = StringField(default='')
+    comment_like = StringField(default='')
+    comment_time = StringField(default='')
     meta = {
         'collection': 'weibo_comment',
         'indexes': ['comment_id']

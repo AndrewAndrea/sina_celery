@@ -17,12 +17,13 @@ from sina_celery.db.weibo_comment import WeiBoComment
 
 from sina_celery.page_get.get_longcontent import get_long_content
 from sina_celery.parse_content.content_parse import parse_content
+from sina_celery.page_get.get_comment import get_comment
 
 
 # 获取用户微博信息
 @app.task(ignore_result=True)
 def get_weibo_info():
-    user_id = 1549364094
+    user_id = 1594199381
     try:
         pattern = r"\d+\.?\d*"
         infos = parse_content()
@@ -47,11 +48,13 @@ def get_weibo_info():
             # 评论数
             comment_num = int(guid[2])
             print(comment_num, '评论数量-----------------------------')
-            # if comment_num != 0:
-            #     app.send_task('tasks.get_weibo_info.get_comment',
-            #                   args=(user_id, weibo_id,),
-            #                   queue='weiboinfo',
-            #                   routing_key='for_weiboinfo')
+            if comment_num != 0:
+                print(user_id)
+                comment_url = 'https://weibo.cn/comment/%s?uid=%d&rl=0#cmtfrm' % (weibo_id, user_id)
+                app.send_task('tasks.get_weibo_info.parse_comment',
+                              args=(comment_url, weibo_id, user_id,),
+                              queue='weiboinfo',
+                              routing_key='for_weiboinfo')
             WeiBoContentUser.add(user_id, weibo_id + str(user_id), content, publish_time, retweet_num, up_num,
                                  comment_num, publish_tool, palce)
 
@@ -194,7 +197,7 @@ def get_retweet(is_retweet, info, wb_content):
         traceback.print_exc()
 
 @app.task(ignore_result=True)
-def get_comment(user_id, weibo_id):
+def parse_comment(comment_url, weibo_id, user_id):
     """
     获取评论内容
     :param user_id:
@@ -202,9 +205,9 @@ def get_comment(user_id, weibo_id):
     :return:
     """
     comment_field = dict()
-    print(weibo_id, 'weibo--------')
     try:
-        html = get_comment(weibo_id, user_id)
+        html = get_comment(comment_url)
+
         soup = BeautifulSoup(html, "html.parser", from_encoding="utf8")
         comments = soup.find_all("div", {"class": "c"})
         for c in comments:
@@ -213,10 +216,12 @@ def get_comment(user_id, weibo_id):
                 comment_field['weibo_id'] = weibo_id
                 comment_field['userName'] = c.find("a").text
                 comment_field['comment_userid'] = c.find("a").get("href").split('/')[-1]
-                comment_field['comment_content'] = c.find("span", {"class": "ctt"}).text
+                comment_field['comment_content'] = c.find("span", {"class": "ctt"}).get_text()
                 comment_field['comment_id'] = str(c.get("id"))
                 comment_field['commentLike'] = c.find("span", {"class": "cc"}).find("a").text
                 comment_field['commentTime'] = c.find("span", {"class": "ct"}).text.strip()
+                print(comment_field)
+                WeiBoComment.add(comment_field)
             except:
                 pass
             next_url = None
@@ -224,21 +229,25 @@ def get_comment(user_id, weibo_id):
                 next_url = soup.find("div", {"id": "pagelist"}).find("form").find("a", text=r'下页').get("href")
             except:
                 pass
+            print(next_url, '有没有下一页')
             if next_url:
-                yield Request(url=self.host + next_url, callback=self.parseC, meta={"weiboID": response.meta["weiboID"]})
+                print('https://weibo.cn' + next_url, '88888888888888888888888')
+                parse_comment('https://weibo.cn''有没有下一页', weibo_id, user_id)
+                # app.send_task('tasks.get_weibo_info.parse_comment',
+                #               args=('https://weibo.cn'.join(next_url), weibo_id, user_id,),
+                #               queue='weiboinfo',
+                #               routing_key='for_weiboinfo')
+                # yield parse_comment('https://weibo.cn'.join(next_url), weibo_id, user_id)
             else:
                 pass
-        selector = etree.HTML(res)
-        urls_1 = selector.xpath("//div[@class='c']/a[1]/@href")
-        print(urls_1, '------------------')
     except Exception as e:
         print('出现异常' + str(e))
         print('微博id' + weibo_id)
-        res_text = requests.get('https://weibo.cn/comment/%s?uid=%d&rl=0#cmtfrm' % (weibo_id, user_id), cookies=cookie,
-                                headers=headers)
-        # pattern = '<a.*?href="(.+)".*?>(.*?)</a>'
-        with open('commecnt.html', 'w', encoding='utf8') as f:
-            f.write(res_text.text)
+        # res_text = requests.get('https://weibo.cn/comment/%s?uid=%d&rl=0#cmtfrm' % (weibo_id, user_id), cookies=cookie,
+        #                         headers=headers)
+        # # pattern = '<a.*?href="(.+)".*?>(.*?)</a>'
+        # with open('commecnt.html', 'w', encoding='utf8') as f:
+        #     f.write(res_text.text)
 # for url in urls:
 #     if 'filter' in url:
 #         urls.remove(url)
